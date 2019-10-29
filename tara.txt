@@ -1,0 +1,15 @@
+Manage Tarasque spawn times
+
+To list the next spawn time(s) for Tarasque:
+<tab><highlight><symbol>tara<end>
+
+To set a new timers once Tarasque has been killed:
+<tab><highlight><symbol>tarakill<end>
+
+To manually set a new timers when Tarasque is vulnerable:
+<tab><highlight><symbol>taraupdate 'time'<end>
+
+<header2>Examples:<end>
+
+Tara will be vulnerable in 1 hours, 2 minutes and 10 seconds:
+<tab><highlight><symbol>taraupdate 1h2m10s<end>

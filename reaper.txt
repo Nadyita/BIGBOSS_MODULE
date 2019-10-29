@@ -1,0 +1,15 @@
+Manage Hollow Reaper spawn times
+
+To list the next spawn time(s) for The Hollow Reaper:
+<tab><highlight><symbol>reaper<end>
+
+To set a new timers once The Hollow Reaper has been killed:
+<tab><highlight><symbol>reaperkill<end>
+
+To manually set a new timers when The Hollow Reaper is vulnerable:
+<tab><highlight><symbol>reaperupdate 'time'<end>
+
+<header2>Examples:<end>
+
+The Hollow Reaper will be vulnerable in 2 hours and 15 minutes:
+<tab><highlight><symbol>reaperupdate 2h15m<end>
