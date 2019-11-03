@@ -9,6 +9,9 @@ To set a new timers once Tarasque has been killed:
 To manually set a new timers when Tarasque is vulnerable:
 <tab><highlight><symbol>taraupdate 'time'<end>
 
+To delete the timer, because you are not interested in it:
+<tab><highlight><symbol>taradel<end>
+
 <header2>Examples:<end>
 
 Tara will be vulnerable in 1 hours, 2 minutes and 10 seconds:

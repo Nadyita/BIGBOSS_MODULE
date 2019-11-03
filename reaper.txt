@@ -9,6 +9,9 @@ To set a new timers once The Hollow Reaper has been killed:
 To manually set a new timers when The Hollow Reaper is vulnerable:
 <tab><highlight><symbol>reaperupdate 'time'<end>
 
+To delete the timer, because it's no longer Halloween:
+<tab><highlight><symbol>reaperdel<end>
+
 <header2>Examples:<end>
 
 The Hollow Reaper will be vulnerable in 2 hours and 15 minutes:

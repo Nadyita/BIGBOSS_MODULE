@@ -31,7 +31,14 @@ use DateTimeZone;
  *		command     = 'taraupdate',
  *		accessLevel = 'member',
  *		description = 'Update Tarasque killtimer to the given time',
- *		help        = 'reaper.txt'
+ *		help        = 'tara.txt'
+ *	)
+ *
+ *	@DefineCommand(
+ *		command     = 'taradel',
+ *		accessLevel = 'member',
+ *		description = 'Delete the timer for Tarasque until someone re-creates it',
+ *		help        = 'tara.txt'
  *	)
  *
  *	@DefineCommand(
@@ -52,6 +59,13 @@ use DateTimeZone;
  *		command     = 'reaperupdate',
  *		accessLevel = 'member',
  *		description = 'Update Reaper killtimer to the given time',
+ *		help        = 'reaper.txt'
+ *	)
+ *
+ *	@DefineCommand(
+ *		command     = 'reaperdel',
+ *		accessLevel = 'member',
+ *		description = 'Delete the timer for The Hollow Reaper until someone re-creates it',
  *		help        = 'reaper.txt'
  *	)
  */
@@ -154,6 +168,17 @@ class BigBossController {
 		return $msg;
 	}
 
+	public function bigBossDeleteCommand($sender, $mobName) {
+		$row = $this->db->queryRow("SELECT * FROM bigboss_timers WHERE mob_name = ?", $mobName);
+		if ($row === null) {
+			$msg = "There is currently no timer for <highlight>$mobName<end>.";
+		} else {
+			$this->db->exec("DELETE FROM bigboss_timers WHERE mob_name = ?", $mobName);
+			$msg = "The timer for <highlight>$mobName<end> has been deleted.";
+		}
+		return $msg;
+	}
+
 	public function bigBossKillCommand($sender, $mobName, $timeUntilSpawn, $timeUntilKillable) {
 		$data = $this->db->queryRow("SELECT * FROM bigboss_timers WHERE mob_name = ?", $mobName);
 		if ($data) {
@@ -228,6 +253,15 @@ class BigBossController {
 	}
 
 	/**
+	 * @HandlesCommand("taradel")
+	 * @Matches("/^taradel$/i")
+	 */
+	public function taraDeleteCommand($message, $channel, $sender, $sendto, $args) {
+		$msg = $this->bigBossDeleteCommand($sender, static::TARA);
+		$sendto->reply($msg);
+	}
+
+	/**
 	 * @HandlesCommand("reaper")
 	 * @Matches("/^reaper$/i")
 	 */
@@ -250,6 +284,15 @@ class BigBossController {
 	 */
 	public function reaperUpdateCommand($message, $channel, $sender, $sendto, $args) {
 		$msg = $this->bigBossUpdateCommand($sender, $args[1], static::REAPER, 9*3600, 0.25*3600);
+		$sendto->reply($msg);
+	}
+
+	/**
+	 * @HandlesCommand("reaperdel")
+	 * @Matches("/^reaperdel$/i")
+	 */
+	public function reaperDeleteCommand($message, $channel, $sender, $sendto, $args) {
+		$msg = $this->bigBossDeleteCommand($sender, static::REAPER);
 		$sendto->reply($msg);
 	}
 
@@ -284,7 +327,7 @@ class BigBossController {
 			}
 			$nextKillTime = time() + $timer->timer+$invulnerableTime;
 			if ($timer->next_killable == time() || ($timer->next_killable <= $nextKillTime && $timer->next_killable > $nextKillTime-10)) {
-				$msg = "<highlight>".$timer->mob_name."<end> is now vulnerable.";
+				$msg = "<highlight>".$timer->mob_name."<end> is no longer immortal.";
 				$this->announceBigBossEvent($msg);
 			}
 		}
