@@ -2,7 +2,6 @@
 
 namespace Budabot\User\Modules;
 
-use Budabot\Core\xml;
 use DateTime;
 use DateTimeZone;
 
@@ -105,20 +104,41 @@ class BigBossController {
 	 */
 	public $moduleName;
 
-	/** @Inject */
+	/**
+	 * @var \Budabot\Core\Text
+	 * @Inject
+	 */
 	public $text;
 
-	/** @Inject */
+	/**
+	 * @var \Budabot\Core\SettingManager
+	 * @Inject
+	 */
 	public $settingManager;
 
-	/** @Inject */
+	/**
+	 * @var \Budabot\Core\Util
+	 * @Inject
+	 */
 	public $util;
 
-	/** @Inject */
+	/**
+	 * @var \Budabot\Core\DB
+	 * @Inject
+	 */
 	public $db;
 
-	/** @Inject */
+	/**
+	 * @var \Budabot\Core\Budabot
+	 * @Inject
+	 */
 	public $chatBot;
+
+	/**
+	 * @var \Budabot\Core\Modules\DiscordController $discordController
+	 * @Inject
+	 */
+	public $discordController;
 
 	const TARA = 'Tarasque';
 	const REAPER = 'The Hollow Reaper';
@@ -126,7 +146,42 @@ class BigBossController {
 
 	/** @Setup */
 	public function setup() {
-		$this->settingManager->add($this->moduleName, 'bigboss_channels', 'Channels to display bigboss alerts', 'edit', 'text', 'both', 'guild;priv;both', '', 'mod', 'tara.txt');
+		$this->settingManager->add(
+			$this->moduleName,
+			'bigboss_channels_prespawn',
+			'Channels to display bigboss pre-spawn alers',
+			'edit',
+			'text',
+			'3',
+			'none;guild;priv;guild+priv;discord;discord+guild;discord+priv;discord+priv+guild',
+			'0;1;2;3;4;5;6;7',
+			'mod',
+			'tara.txt'
+		);
+		$this->settingManager->add(
+			$this->moduleName,
+			'bigboss_channels_spawn',
+			'Channels to display bigboss spawn alerts',
+			'edit',
+			'text',
+			'7',
+			'none;guild;priv;guild+priv;discord;discord+guild;discord+priv;discord+priv+guild',
+			'0;1;2;3;4;5;6;7',
+			'mod',
+			'tara.txt'
+		);
+		$this->settingManager->add(
+			$this->moduleName,
+			'bigboss_channels_vulnerable',
+			'Channels to display bigboss vulnerable alerts',
+			'edit',
+			'text',
+			'3',
+			'none;guild;priv;guild+priv;discord;discord+guild;discord+priv;discord+priv+guild',
+			'0;1;2;3;4;5;6;7',
+			'mod',
+			'tara.txt'
+		);
 		$this->db->loadSQLFile($this->moduleName, 'bigboss_timers');
 	}
 
@@ -380,14 +435,29 @@ class BigBossController {
 		$sendto->reply($msg);
 	}
 
-	protected function announceBigBossEvent($msg) {
-		if ($this->settingManager->get('bigboss_channels') == "priv") {
-			$this->chatBot->sendPrivate($msg, true);
-		} elseif ($this->settingManager->get('bigboss_channels') == "guild") {
+	/**
+	 * Announce an event
+	 *
+	 * @param string $msg The nmessage to send
+	 * @param int $step 1 => spawns soon, 2 => has spawned, 3 => vulnerable
+	 * @return void
+	 */
+	protected function announceBigBossEvent($msg, $step) {
+		$setting = 'bigboss_channels_spawn';
+		if ($step === 1) {
+			$setting = 'bigboss_channels_prespawn';
+		} elseif ($step === 3) {
+			$setting = 'bigboss_channels_vulnerable';
+		}
+		$channels = $this->settingManager->get($setting);
+		if ($channels & 1) {
 			$this->chatBot->sendGuild($msg, true);
-		} elseif ($this->settingManager->get('bigboss_channels') == "both") {
+		}
+		if ($channels & 2) {
 			$this->chatBot->sendPrivate($msg, true);
-			$this->chatBot->sendGuild($msg, true);
+		}
+		if ($channels & 4 && $this->discordController) {
+			$this->discordController->sendMessage($msg);
 		}
 	}
 
@@ -402,17 +472,17 @@ class BigBossController {
 			if ($timer->next_spawn <= time()+15*60 && $timer->next_spawn > time()+15*60-10) {
 				$msg = "<highlight>".$timer->mob_name."<end> will spawn in ".
 					"<highlight>".$this->util->unixtimeToReadable($timer->next_spawn-time())."<end>.";
-				$this->announceBigBossEvent($msg);
+				$this->announceBigBossEvent($msg, 1);
 			}
 			if ($timer->next_spawn <= time() && $timer->next_spawn > time()-10) {
 				$msg = "<highlight>".$timer->mob_name."<end> has spawned and will be vulnerable in ".
 					"<highlight>".$this->util->unixtimeToReadable($timer->next_killable-time())."<end>.";
-				$this->announceBigBossEvent($msg);
+				$this->announceBigBossEvent($msg, 2);
 			}
 			$nextKillTime = time() + $timer->timer+$invulnerableTime;
 			if ($timer->next_killable == time() || ($timer->next_killable <= $nextKillTime && $timer->next_killable > $nextKillTime-10)) {
 				$msg = "<highlight>".$timer->mob_name."<end> is no longer immortal.";
-				$this->announceBigBossEvent($msg);
+				$this->announceBigBossEvent($msg, 3);
 			}
 		}
 	}
