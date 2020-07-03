@@ -13,6 +13,12 @@ use DateTimeZone;
  *
  * Commands this controller contains:
  *	@DefineCommand(
+ *		command     = 'bb',
+ *		accessLevel = 'all',
+ *		description = 'Show next spawntime(s)',
+ *		help        = 'bb.txt'
+ *	)
+ *	@DefineCommand(
  *		command     = 'tara',
  *		accessLevel = 'all',
  *		description = 'Show next Tarasque spawntime(s)',
@@ -206,6 +212,12 @@ class BigBossController {
 		if ($mobName !== null) {
 			return false;
 		}
+		usort($data, function($a, $b) {
+			if ($a->next_spawn === $b->next_spawn) {
+				return 0;
+			}
+			return $a->next_spawn < $b->next_spawn ? -1 : 1;
+		});
 		return $data;
 	}
 
@@ -236,19 +248,30 @@ class BigBossController {
 			$msg = "I currently don't have an accurate timer for <highlight>$mobName<end>.";
 			return $msg;
 		}
+		return $this->formatBigBossMessage($timer, false);
+	}
+
+	public function formatBigBossMessage($timer, $short=true) {
 		$spawnTimeMessage = '';
 		if (time() < $timer->next_spawn) {
 			$timeUntilSpawn = $this->util->unixtimeToReadable($timer->next_spawn-time());
-			$spawnTimeMessage = " spawns in <highlight>$timeUntilSpawn<end> and";
+			$spawnTimeMessage = " spawns in <highlight>$timeUntilSpawn<end>";
+			if ($short) {
+				return "{$timer->mob_name}{$spawnTimeMessage}.";
+			}
+			$spawnTimeMessage .= " and";
 		} else {
 			$spawnTimeMessage = " spawned and";
 		}
 		$timeUntilKill = $this->util->unixtimeToReadable($timer->next_killable-time());
 		$killTimeMessage = " will be vulnerable in <highlight>$timeUntilKill<end>";
+		if ($short) {
+			return "{$timer->mob_name}{$spawnTimeMessage}{$killTimeMessage}.";
+		}
 
 		$nextSpawnsMessage = $this->getNextSpawnsMessage($timer);
-		$spawntimes = $this->text->makeBlob("Spawntimes for $mobName", $nextSpawnsMessage);
-		$msg = "$mobName${spawnTimeMessage}${killTimeMessage}. $spawntimes";
+		$spawntimes = $this->text->makeBlob("Spawntimes for {$timer->mob_name}", $nextSpawnsMessage);
+		$msg = "{$timer->mob_name}${spawnTimeMessage}${killTimeMessage}. $spawntimes";
 		return $msg;
 	}
 
@@ -328,6 +351,26 @@ class BigBossController {
 		}
 		$msg = "The timer for <highlight>$mobName<end> has been updated.";
 		return $msg;
+	}
+
+	/**
+	 * @HandlesCommand("bb")
+	 * @Matches("/^bb$/i")
+	 */
+	public function bbCommand($message, $channel, $sender, $sendto, $args) {
+		$timers = $this->getBigBossTimers();
+		if ($timers === false || !count($timers)) {
+			$msg = "I currently don't have an accurate timer for any boss.";
+			$sendto->reply($msg);
+			return $msg;
+		}
+		$messages = array_map([$this, 'formatBigBossMessage'], $timers);
+		$msg = $messages[0];
+		if (count($messages) > 1) {
+			$msg = "I'm currently monitoring the following bosses:\n".
+				join("\n", $messages);
+		}
+		$sendto->reply($msg);
 	}
 
 	/**
