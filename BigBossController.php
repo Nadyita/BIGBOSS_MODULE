@@ -1,13 +1,12 @@
 <?php
 
-namespace Budabot\User\Modules;
+namespace Budabot\User\Modules\BIGBOSS_MODULE;
 
 use DateTime;
 use DateTimeZone;
 
 /**
- * Authors:
- *	- Nadyita (RK5)
+ * @author Nadyita (RK5) <nadyita@hodorraid.org>
  *
  * @Instance
  *
@@ -141,7 +140,7 @@ class BigBossController {
 	public $chatBot;
 
 	/**
-	 * @var \Budabot\Core\Modules\DiscordController $discordController
+	 * @var \Budabot\Core\Modules\DISCORD\DiscordController $discordController
 	 * @Inject
 	 */
 	public $discordController;
