@@ -1,9 +1,20 @@
-<?php
+<?php declare(strict_types=1);
 
-namespace Budabot\User\Modules\BIGBOSS_MODULE;
+namespace Nadybot\User\Modules\BIGBOSS_MODULE;
 
 use DateTime;
 use DateTimeZone;
+use Nadybot\Core\{
+	CommandReply,
+	DB,
+	Event,
+	Modules\DISCORD\DiscordController,
+	Nadybot,
+	SettingManager,
+	Text,
+	Util,
+};
+use Nadybot\User\Modules\DISC_MODULE\BigbossTimer;
 
 /**
  * @author Nadyita (RK5) <nadyita@hodorraid.org>
@@ -107,47 +118,29 @@ class BigBossController {
 	 * Name of the module.
 	 * Set automatically by module loader.
 	 */
-	public $moduleName;
+	public string $moduleName;
 
-	/**
-	 * @var \Budabot\Core\Text
-	 * @Inject
-	 */
-	public $text;
+	/** @Inject */
+	public Text $text;
 
-	/**
-	 * @var \Budabot\Core\SettingManager
-	 * @Inject
-	 */
-	public $settingManager;
+	/** @Inject */
+	public SettingManager $settingManager;
 
-	/**
-	 * @var \Budabot\Core\Util
-	 * @Inject
-	 */
-	public $util;
+	/** @Inject */
+	public Util $util;
 
-	/**
-	 * @var \Budabot\Core\DB
-	 * @Inject
-	 */
-	public $db;
+	/** @Inject */
+	public DB $db;
 
-	/**
-	 * @var \Budabot\Core\Budabot
-	 * @Inject
-	 */
-	public $chatBot;
+	/** @Inject */
+	public Nadybot $chatBot;
 
-	/**
-	 * @var \Budabot\Core\Modules\DISCORD\DiscordController $discordController
-	 * @Inject
-	 */
-	public $discordController;
+	/** @Inject */
+	public DiscordController $discordController;
 
-	const TARA = 'Tarasque';
-	const REAPER = 'The Hollow Reaper';
-	const LOREN = 'Loren Warr';
+	public const TARA = 'Tarasque';
+	public const REAPER = 'The Hollow Reaper';
+	public const LOREN = 'Loren Warr';
 
 	/** @Setup */
 	public function setup() {
@@ -190,44 +183,54 @@ class BigBossController {
 		$this->db->loadSQLFile($this->moduleName, 'bigboss_timers');
 	}
 
-	protected function getBigBossTimers($mobName=null) {
-		if ($mobName !== null) {
-			$data = $this->db->query("SELECT * FROM bigboss_timers WHERE mob_name = ?", $mobName);
-		} else {
-			$data = $this->db->query("SELECT * FROM bigboss_timers");
-		}
-		foreach ($data as $row) {
-			$invulnerableTime = $row->killable - $row->spawn;
-			$row->next_killable = $row->killable;
-			$row->next_spawn    = $row->spawn;
-			while ($row->next_killable < time()) {
-				$row->next_killable += $row->timer + $invulnerableTime;
-				$row->next_spawn    += $row->timer + $invulnerableTime;
-			}
-			if ($mobName !== null) {
-				return $row;
+	/**
+	 * @param BigbossTimer[] $timers
+	 */
+	protected function addNextDates(array $timers): void {
+		foreach ($timers as $timer) {
+			$invulnerableTime = $timer->killable - $timer->spawn;
+			$timer->next_killable = $timer->killable;
+			$timer->next_spawn    = $timer->spawn;
+			while ($timer->next_killable < time()) {
+				$timer->next_killable += $timer->timer + $invulnerableTime;
+				$timer->next_spawn    += $timer->timer + $invulnerableTime;
 			}
 		}
-		if ($mobName !== null) {
-			return false;
-		}
-		usort($data, function($a, $b) {
-			if ($a->next_spawn === $b->next_spawn) {
-				return 0;
-			}
-			return $a->next_spawn < $b->next_spawn ? -1 : 1;
+		usort($timers, function($a, $b) {
+			return $a->next_spawn <=> $b->next_spawn;
 		});
-		return $data;
 	}
 
-	protected function niceTime($timestamp) {
+	protected function getBigBossTimer(string $mobName): ?BigbossTimer {
+		$sql = "SELECT * FROM bigboss_timers WHERE mob_name = ?";
+		/** @var BigbossTimer[] */
+		$timers = $this->db->fetchAll(BigbossTimer::class, $sql, $mobName);
+		if (!count($timers)) {
+			return null;
+		}
+		$this->addNextDates($timers);
+		return $timers[0];
+	}
+
+	/**
+	 * @return BigbossTimer[]
+	 */
+	protected function getBigBossTimers(): array {
+		$sql = "SELECT * FROM bigboss_timers";
+		/** @var BigbossTimer[] */
+		$timers = $this->db->fetchAll(BigbossTimer::class, $sql);
+		$this->addNextDates($timers);
+		return $timers;
+	}
+
+	protected function niceTime(int $timestamp): string {
 		$time = new DateTime();
 		$time->setTimestamp($timestamp);
 		$time->setTimezone(new DateTimeZone('UTC'));
 		return $time->format("D, H:i T (Y-m-d)");
 	}
 
-	protected function getNextSpawnsMessage($timer, $howMany=10) {
+	protected function getNextSpawnsMessage(BigbossTimer $timer, int $howMany=10): string {
 		$multiplicator = $timer->timer + $timer->killable - $timer->spawn;
 		$times = [];
 		for ($i = 0; $i < $howMany; $i++) {
@@ -241,16 +244,16 @@ class BigBossController {
 		return $msg;
 	}
 
-	protected function getBigBossMessage($mobName) {
-		$timer = $this->getBigBossTimers($mobName);
-		if ($timer === false) {
+	protected function getBigBossMessage(string $mobName): string {
+		$timer = $this->getBigBossTimer($mobName);
+		if ($timer === null) {
 			$msg = "I currently don't have an accurate timer for <highlight>$mobName<end>.";
 			return $msg;
 		}
 		return $this->formatBigBossMessage($timer, false);
 	}
 
-	public function formatBigBossMessage($timer, $short=true) {
+	public function formatBigBossMessage(BigbossTimer $timer, bool $short=true): string {
 		$spawnTimeMessage = '';
 		if (time() < $timer->next_spawn) {
 			$timeUntilSpawn = $this->util->unixtimeToReadable($timer->next_spawn-time());
@@ -274,23 +277,19 @@ class BigBossController {
 		return $msg;
 	}
 
-	public function bigBossDeleteCommand($sender, $mobName) {
-		$row = $this->db->queryRow("SELECT * FROM bigboss_timers WHERE mob_name = ?", $mobName);
-		if ($row === null) {
-			$msg = "There is currently no timer for <highlight>$mobName<end>.";
-		} else {
-			$this->db->exec("DELETE FROM bigboss_timers WHERE mob_name = ?", $mobName);
-			$msg = "The timer for <highlight>$mobName<end> has been deleted.";
+	public function bigBossDeleteCommand(string $sender, string $mobName): string {
+		if ($this->db->exec("DELETE FROM bigboss_timers WHERE mob_name = ?", $mobName) === 0) {
+			return "There is currently no timer for <highlight>$mobName<end>.";
 		}
-		return $msg;
+		return "The timer for <highlight>$mobName<end> has been deleted.";
 	}
 
-	public function bigBossKillCommand($sender, $mobName, $timeUntilSpawn, $timeUntilKillable) {
-		$data = $this->db->queryRow("SELECT * FROM bigboss_timers WHERE mob_name = ?", $mobName);
-		if ($data) {
+	public function bigBossKillCommand(string $sender, string $mobName, int $timeUntilSpawn, int $timeUntilKillable): string {
+		if ($this->getBigBossTimer($mobName) !== null) {
 			$this->db->exec(
 				"UPDATE bigboss_timers SET ".
-				"timer=?, spawn=?, killable=?, time_submitted=?, submitter_name=? WHERE mob_name=?",
+				"timer=?, spawn=?, killable=?, time_submitted=?, submitter_name=? ".
+				"WHERE mob_name=?",
 				$timeUntilSpawn,
 				time() + $timeUntilSpawn,
 				time() + $timeUntilKillable,
@@ -315,8 +314,8 @@ class BigBossController {
 		return $msg;
 	}
 
-	public function bigBossUpdateCommand($sender, $arg, $mobName, $downTime, $timeUntilKillable) {
-		$data = $this->db->queryRow("SELECT * FROM bigboss_timers WHERE mob_name = ?", $mobName);
+	public function bigBossUpdateCommand(string $sender, string $arg, string $mobName, int $downTime, int $timeUntilKillable): string {
+		$data = $this->getBigBossTimer($mobName);
 		$newKillTime = $this->util->parseTime($arg);
 		if ($newKillTime < 1) {
 			$msg = "You must enter a valid time parameter for the time until <highlight>${mobName}<end> will be vulnerable.";
@@ -327,7 +326,8 @@ class BigBossController {
 		if ($data) {
 			$this->db->exec(
 				"UPDATE bigboss_timers SET ".
-				"timer=?, spawn=?, killable=?, time_submitted=?, submitter_name=? WHERE mob_name=?",
+				"timer=?, spawn=?, killable=?, time_submitted=?, submitter_name=? ".
+				"WHERE mob_name=?",
 				$downTime,
 				$newKillTime-$timeUntilKillable,
 				$newKillTime,
@@ -338,7 +338,7 @@ class BigBossController {
 		} else {
 			$this->db->exec(
 				"INSERT INTO bigboss_timers ".
-				"       (mob_name, timer, spawn, killable, time_submitted, submitter_name) ".
+				"(mob_name, timer, spawn, killable, time_submitted, submitter_name) ".
 				"VALUES (?, ?, ?, ?, ?, ?)",
 				$mobName,
 				$downTime,
@@ -356,12 +356,12 @@ class BigBossController {
 	 * @HandlesCommand("bb")
 	 * @Matches("/^bb$/i")
 	 */
-	public function bbCommand($message, $channel, $sender, $sendto, $args) {
+	public function bbCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
 		$timers = $this->getBigBossTimers();
-		if ($timers === false || !count($timers)) {
+		if (!count($timers)) {
 			$msg = "I currently don't have an accurate timer for any boss.";
 			$sendto->reply($msg);
-			return $msg;
+			return;
 		}
 		$messages = array_map([$this, 'formatBigBossMessage'], $timers);
 		$msg = $messages[0];
@@ -376,7 +376,7 @@ class BigBossController {
 	 * @HandlesCommand("tara")
 	 * @Matches("/^tara$/i")
 	 */
-	public function taraCommand($message, $channel, $sender, $sendto, $args) {
+	public function taraCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
 		$sendto->reply($this->getBigBossMessage(static::TARA));
 	}
 
@@ -384,8 +384,8 @@ class BigBossController {
 	 * @HandlesCommand("tarakill")
 	 * @Matches("/^tarakill$/i")
 	 */
-	public function taraKillCommand($message, $channel, $sender, $sendto, $args) {
-		$msg = $this->bigBossKillCommand($sender, static::TARA, 9*3600, 9.5*3600);
+	public function taraKillCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
+		$msg = $this->bigBossKillCommand($sender, static::TARA, 9*3600, (int)(9.5*3600));
 		$sendto->reply($msg);
 	}
 
@@ -393,8 +393,8 @@ class BigBossController {
 	 * @HandlesCommand("taraupdate")
 	 * @Matches("/^taraupdate ([a-z0-9 ]+)$/i")
 	 */
-	public function taraUpdateCommand($message, $channel, $sender, $sendto, $args) {
-		$msg = $this->bigBossUpdateCommand($sender, $args[1], static::TARA, 9*3600, 0.5*3600);
+	public function taraUpdateCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
+		$msg = $this->bigBossUpdateCommand($sender, $args[1], static::TARA, 9*3600, 1800);
 		$sendto->reply($msg);
 	}
 
@@ -402,7 +402,7 @@ class BigBossController {
 	 * @HandlesCommand("taradel")
 	 * @Matches("/^taradel$/i")
 	 */
-	public function taraDeleteCommand($message, $channel, $sender, $sendto, $args) {
+	public function taraDeleteCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
 		$msg = $this->bigBossDeleteCommand($sender, static::TARA);
 		$sendto->reply($msg);
 	}
@@ -411,7 +411,7 @@ class BigBossController {
 	 * @HandlesCommand("reaper")
 	 * @Matches("/^reaper$/i")
 	 */
-	public function reaperCommand($message, $channel, $sender, $sendto, $args) {
+	public function reaperCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
 		$sendto->reply($this->getBigBossMessage(static::REAPER));
 	}
 
@@ -419,8 +419,8 @@ class BigBossController {
 	 * @HandlesCommand("reaperkill")
 	 * @Matches("/^reaperkill$/i")
 	 */
-	public function reaperKillCommand($message, $channel, $sender, $sendto, $args) {
-		$msg = $this->bigBossKillCommand($sender, static::REAPER, 9*3600, 9.25*3600);
+	public function reaperKillCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
+		$msg = $this->bigBossKillCommand($sender, static::REAPER, 9*3600, (int)(9.25*3600));
 		$sendto->reply($msg);
 	}
 
@@ -428,8 +428,8 @@ class BigBossController {
 	 * @HandlesCommand("reaperupdate")
 	 * @Matches("/^reaperupdate ([a-z0-9 ]+)$/i")
 	 */
-	public function reaperUpdateCommand($message, $channel, $sender, $sendto, $args) {
-		$msg = $this->bigBossUpdateCommand($sender, $args[1], static::REAPER, 9*3600, 0.25*3600);
+	public function reaperUpdateCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
+		$msg = $this->bigBossUpdateCommand($sender, $args[1], static::REAPER, 9*3600, 900);
 		$sendto->reply($msg);
 	}
 
@@ -437,7 +437,7 @@ class BigBossController {
 	 * @HandlesCommand("reaperdel")
 	 * @Matches("/^reaperdel$/i")
 	 */
-	public function reaperDeleteCommand($message, $channel, $sender, $sendto, $args) {
+	public function reaperDeleteCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
 		$msg = $this->bigBossDeleteCommand($sender, static::REAPER);
 		$sendto->reply($msg);
 	}
@@ -446,7 +446,7 @@ class BigBossController {
 	 * @HandlesCommand("loren")
 	 * @Matches("/^loren$/i")
 	 */
-	public function lorenCommand($message, $channel, $sender, $sendto, $args) {
+	public function lorenCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
 		$sendto->reply($this->getBigBossMessage(static::LOREN));
 	}
 
@@ -454,8 +454,8 @@ class BigBossController {
 	 * @HandlesCommand("lorenkill")
 	 * @Matches("/^lorenkill$/i")
 	 */
-	public function lorenKillCommand($message, $channel, $sender, $sendto, $args) {
-		$msg = $this->bigBossKillCommand($sender, static::LOREN, 9*3600, 9.25*3600);
+	public function lorenKillCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
+		$msg = $this->bigBossKillCommand($sender, static::LOREN, 9*3600, (int)(9.25*3600));
 		$sendto->reply($msg);
 	}
 
@@ -463,8 +463,8 @@ class BigBossController {
 	 * @HandlesCommand("lorenupdate")
 	 * @Matches("/^lorenupdate ([a-z0-9 ]+)$/i")
 	 */
-	public function lorenUpdateCommand($message, $channel, $sender, $sendto, $args) {
-		$msg = $this->bigBossUpdateCommand($sender, $args[1], static::LOREN, 9*3600, 0.25*3600);
+	public function lorenUpdateCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
+		$msg = $this->bigBossUpdateCommand($sender, $args[1], static::LOREN, 9*3600, 900);
 		$sendto->reply($msg);
 	}
 
@@ -472,7 +472,7 @@ class BigBossController {
 	 * @HandlesCommand("lorendel")
 	 * @Matches("/^lorendel$/i")
 	 */
-	public function lorenDeleteCommand($message, $channel, $sender, $sendto, $args) {
+	public function lorenDeleteCommand(string $message, string $channel, string $sender, CommandReply $sendto, array $args): void {
 		$msg = $this->bigBossDeleteCommand($sender, static::LOREN);
 		$sendto->reply($msg);
 	}
@@ -484,7 +484,7 @@ class BigBossController {
 	 * @param int $step 1 => spawns soon, 2 => has spawned, 3 => vulnerable
 	 * @return void
 	 */
-	protected function announceBigBossEvent($msg, $step) {
+	protected function announceBigBossEvent(string $msg, int $step): void {
 		$setting = 'bigboss_channels_spawn';
 		if ($step === 1) {
 			$setting = 'bigboss_channels_prespawn';
@@ -498,8 +498,8 @@ class BigBossController {
 		if ($channels & 2) {
 			$this->chatBot->sendPrivate($msg, true);
 		}
-		if ($channels & 4 && $this->discordController) {
-			$this->discordController->sendMessage($msg);
+		if ($channels & 4 && isset($this->discordController)) {
+			$this->discordController->sendDiscord($msg);
 		}
 	}
 
@@ -507,7 +507,7 @@ class BigBossController {
 	 * @Event("timer(10sec)")
 	 * @Description("Check timer to announce big boss events")
 	 */
-	public function checkTimerEvent($eventObj) {
+	public function checkTimerEvent(Event $eventObj): void {
 		$timers = $this->getBigBossTimers();
 		foreach ($timers as $timer) {
 			$invulnerableTime = $timer->killable - $timer->spawn;
